@@ -1,20 +1,24 @@
 import sys
+import pandas as pd
+from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox, QComboBox
 )
 from PyQt5.QtCore import QTimer
 from data_fetcher import DataFetcher
 from portfolio_manager import PortfolioManager
 from strategy_manager import StrategyManager
+from database import Database
+import plotly.graph_objs as go
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, data_fetcher, portfolio_manager, strategy_manager):
+    def __init__(self, api_key):
         super().__init__()
-        self.data_fetcher = data_fetcher
-        self.portfolio_manager = portfolio_manager
-        self.strategy_manager = strategy_manager
+        self.data_fetcher = DataFetcher(api_key)
+        self.portfolio_manager = PortfolioManager()
+        self.strategy_manager = StrategyManager()
 
         self.setWindowTitle("Trading Platform")
         self.setGeometry(200, 200, 1000, 700)
@@ -23,12 +27,30 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.create_portfolio_tab(), "Portfolio")
         self.tabs.addTab(self.create_strategy_tab(), "Strategy")
         self.tabs.addTab(self.create_notifications_tab(), "Notifications")
+        self.tabs.addTab(self.create_charts_tab(), "Charts")
 
         self.setCentralWidget(self.tabs)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_prices)
         self.timer.start(60000)
+
+        self.update_prices()
+        self.update_asset_table()
+
+    def closeEvent(self, event):
+        reply = QMessageBox.question(
+            self,
+            "Exit",
+            "Are you sure you want to close the application?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
     def create_portfolio_tab(self):
         tab = QWidget()
@@ -93,12 +115,39 @@ class MainWindow(QMainWindow):
         tab.setLayout(layout)
         return tab
 
+    def create_charts_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        self.chart_combo = QComboBox()
+        self.chart_combo.addItem("")
+        self.chart_combo.addItems(self.portfolio_manager.assets.keys())
+        self.chart_combo.setCurrentIndex(0)
+        self.chart_combo.currentIndexChanged.connect(self.update_chart)
+
+        self.interval_combo = QComboBox()
+        self.interval_combo.addItems(['1min', '5min', '15min', '30min', '60min'])
+        self.interval_combo.setCurrentIndex(1)
+        self.interval_combo.currentIndexChanged.connect(self.update_chart)
+
+        # layout.addWidget(QLabel("Select Asset for Chart:"))
+        layout.addWidget(self.chart_combo)
+        layout.addWidget(self.interval_combo)
+
+        self.chart_browser = QtWebEngineWidgets.QWebEngineView(self)
+        layout.addWidget(self.chart_browser)
+
+        tab.setLayout(layout)
+        return tab
+
     def add_asset(self):
         asset_symbol = self.asset_input.text().strip().upper()
         if asset_symbol:
-            self.portfolio_manager.add_asset(asset_symbol)
+            price = self.fetch_realtime_data(asset_symbol)
+            self.portfolio_manager.add_asset(asset_symbol, price)
             self.update_asset_table()
-            self.fetch_realtime_data(asset_symbol)
+            self.asset_input.clear()
+            self.update_asset_selector()
 
     def remove_selected_asset(self):
         selected_row = self.asset_table.currentRow()
@@ -130,8 +179,8 @@ class MainWindow(QMainWindow):
         price = self.data_fetcher.fetch_realtime_data(asset)["Global Quote"]["05. price"]
         # Вот здесь все еще костыль
         if price is not None:
-            self.portfolio_manager.assets[asset] = price
-            self.update_asset_table()
+            self.portfolio_manager.add_asset(asset, price)
+            return price
         else:
             print(f"Could not fetch price for {asset}")
 
@@ -140,6 +189,7 @@ class MainWindow(QMainWindow):
             self.fetch_realtime_data(asset)
 
     def update_asset_table(self):
+        self.portfolio_manager.load_assets_from_db()
         self.asset_table.setRowCount(len(self.portfolio_manager.assets))
         for row, (asset, price) in enumerate(self.portfolio_manager.get_assets()):
             self.asset_table.setItem(row, 0, QTableWidgetItem(asset))
@@ -148,13 +198,52 @@ class MainWindow(QMainWindow):
             remove_button.clicked.connect(lambda checked, asset=asset: self.remove_asset(asset))
             self.asset_table.setCellWidget(row, 2, remove_button)
 
+    def remove_asset(self, asset):
+        self.portfolio_manager.remove_asset(asset)
+        self.update_asset_table()
+
     def update_strategy_table(self):
         self.strategy_table.setRowCount(len(self.strategy_manager.strategies))
         for row, strategy in enumerate(self.strategy_manager.get_strategies()):
             self.strategy_table.setItem(row, 0, QTableWidgetItem(strategy.name))
             self.strategy_table.setItem(row, 1, QTableWidgetItem(strategy.parameters))
 
-    def remove_asset(self, asset):
-        self.portfolio_manager.remove_asset(asset)
-        self.update_asset_table()
+    def update_chart(self):
+        asset_symbol = self.chart_combo.currentText()
+        if asset_symbol == "":
+            return
+        data = self.data_fetcher.fetch_historical_data(asset_symbol, interval=self.interval_combo.currentText())
+        time_series = data[f'Time Series ({self.interval_combo.currentText()})']
+        df = pd.DataFrame({
+            "Date": pd.to_datetime(list(time_series.keys())),
+            "Open": [float(values['1. open']) for values in time_series.values()],
+            "High": [float(values['2. high']) for values in time_series.values()],
+            "Low": [float(values['3. low']) for values in time_series.values()],
+            "Close": [float(values['4. close']) for values in time_series.values()]
+        })
+
+        df = df.sort_values(by="Date")
+        fig = go.Figure(data=[go.Candlestick(
+            x=df['Date'],
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close']
+        )])
+
+        fig.update_layout(
+            title=f"{data['Meta Data']['2. Symbol']} Candlestick Chart",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            xaxis_rangeslider_visible=False,
+            template="plotly_dark"
+        )
+
+        self.chart_browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+
+    def update_asset_selector(self):
+        self.asset_selector.clear()
+        self.asset_selector.addItems("")
+        self.asset_selector.addItems(self.portfolio_manager.assets.keys())
+        self.chart_combo.setCurrentIndex(0)
 

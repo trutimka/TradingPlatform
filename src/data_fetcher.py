@@ -16,7 +16,12 @@ class DataFetcher:
             print(f"Error fetching data for {asset}: {e}")
             return None
 
-    # def fetch_historical_data(self, asset, start_date, end_date):
-    #     url = f'https://api.example.com/historical?symbol={asset}&start={start_date}&end={end_date}&apikey={self.api_key}'
-    #     response = requests.get(url)
-    #     return response.json() if response.status_code == 200 else None
+    def fetch_historical_data(self, asset, interval='5min'):
+        try:
+            url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={asset}&interval={interval}&apikey={self.api_key}&outputsize=full'
+            response = requests.get(url)
+            print(response.json())
+            return response.json() if response.status_code == 200 else None
+        except requests.RequestException as e:
+            print(f"Error fetching data for {asset}: {e}")
+            return None
