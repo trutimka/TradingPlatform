@@ -19,6 +19,7 @@ class MainWindow(QMainWindow):
         self.data_fetcher = DataFetcher(api_key)
         self.portfolio_manager = PortfolioManager()
         self.strategy_manager = StrategyManager()
+        self.notifications = {}
 
         self.setWindowTitle("Trading Platform")
         self.setGeometry(200, 200, 1000, 700)
@@ -110,8 +111,25 @@ class MainWindow(QMainWindow):
     def create_notifications_tab(self):
         tab = QWidget()
         layout = QVBoxLayout()
+
+        self.notification_asset_input = QLineEdit()
+        self.notification_asset_input.setPlaceholderText("Enter asset symbol for notification")
+        self.price_threshold_input = QLineEdit()
+        self.price_threshold_input.setPlaceholderText("Enter price threshold")
+
+        add_notification_button = QPushButton("Add Notification")
+        add_notification_button.clicked.connect(self.add_notification)
+
+        self.notification_table = QTableWidget()
+        self.notification_table.setColumnCount(3)
+        self.notification_table.setHorizontalHeaderLabels(["Asset", "Price Threshold", "Remove"])
+
         layout.addWidget(QLabel("Market change notifications"))
-        layout.addWidget(QPushButton("Configure Notifications"))
+        layout.addWidget(self.notification_asset_input)
+        layout.addWidget(self.price_threshold_input)
+        layout.addWidget(add_notification_button)
+        layout.addWidget(self.notification_table)
+
         tab.setLayout(layout)
         return tab
 
@@ -130,7 +148,6 @@ class MainWindow(QMainWindow):
         self.interval_combo.setCurrentIndex(1)
         self.interval_combo.currentIndexChanged.connect(self.update_chart)
 
-        # layout.addWidget(QLabel("Select Asset for Chart:"))
         layout.addWidget(self.chart_combo)
         layout.addWidget(self.interval_combo)
 
@@ -175,6 +192,34 @@ class MainWindow(QMainWindow):
             self.strategy_manager.remove_strategy(strategy_name)
             self.update_strategy_table()
 
+    def add_notification(self):
+        asset = self.notification_asset_input.text().strip().upper()
+        try:
+            threshold = float(self.price_threshold_input.text().strip())
+            if asset and threshold > 0:
+                self.notifications[asset] = threshold
+                self.update_notification_table()
+                self.notification_asset_input.clear()
+                self.price_threshold_input.clear()
+            else:
+                QMessageBox.warning(self, "Invalid Input", "Please provide a valid asset and threshold.")
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid price threshold.")
+
+    def update_notification_table(self):
+        self.notification_table.setRowCount(len(self.notifications))
+        for row, (asset, threshold) in enumerate(self.notifications.items()):
+            self.notification_table.setItem(row, 0, QTableWidgetItem(asset))
+            self.notification_table.setItem(row, 1, QTableWidgetItem(str(threshold)))
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(lambda checked, asset=asset: self.remove_notification(asset))
+            self.notification_table.setCellWidget(row, 2, remove_button)
+
+    def remove_notification(self, asset):
+        if asset in self.notifications:
+            del self.notifications[asset]
+            self.update_notification_table()
+
     def fetch_realtime_data(self, asset):
         price = self.data_fetcher.fetch_realtime_data(asset)["Global Quote"]["05. price"]
         # Вот здесь все еще костыль
@@ -186,7 +231,17 @@ class MainWindow(QMainWindow):
 
     def update_prices(self):
         for asset in self.portfolio_manager.assets.keys():
-            self.fetch_realtime_data(asset)
+            price = self.fetch_realtime_data(asset)
+            if asset in self.notifications:
+                threshold = self.notifications[asset]
+                if float(price) >= threshold:
+                    self.show_notification(asset, price)
+
+    def show_notification(self, asset, price):
+        try:
+            QMessageBox.information(self, "Price Alert", f"{asset} has reached the price of {price}!")
+        except WindowsError:
+            QMessageBox.warning(self, "Invalid Notification", "Something wrong with notifications.")
 
     def update_asset_table(self):
         self.portfolio_manager.load_assets_from_db()
