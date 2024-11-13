@@ -3,7 +3,8 @@ import pandas as pd
 from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox, QComboBox
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox, QComboBox, QFormLayout,
+    QPlainTextEdit
 )
 from PyQt5.QtCore import QTimer
 from data_fetcher import DataFetcher
@@ -85,29 +86,107 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout()
 
-        self.strategy_name_input = QLineEdit()
-        self.strategy_name_input.setPlaceholderText("Enter strategy name")
-        self.strategy_params_input = QLineEdit()
-        self.strategy_params_input.setPlaceholderText("Enter parameters (comma separated)")
+        layout.addWidget(QLabel("Select an Asset"))
+        self.asset_selector = QComboBox()
+        print(self.portfolio_manager.get_assets())
+        self.asset_selector.addItems([assets[0] for assets in self.portfolio_manager.get_assets()])
+        layout.addWidget(self.asset_selector)
 
-        add_strategy_button = QPushButton("Add Strategy")
-        add_strategy_button.clicked.connect(self.add_strategy)
+        layout.addWidget(QLabel("Select a Strategy"))
+        self.strategy_selector = QComboBox()
+        self.strategy_selector.addItems([
+            "Select a Strategy",
+            "Moving Average",
+            "Breakout Strategy",
+            "Mean Reversion Strategy"
+        ])
+        self.strategy_selector.currentIndexChanged.connect(self.update_strategy_params)
+        layout.addWidget(self.strategy_selector)
 
-        self.strategy_table = QTableWidget()
-        self.strategy_table.setColumnCount(2)
-        self.strategy_table.setHorizontalHeaderLabels(["Strategy Name", "Parameters"])
+        self.period_selector = QComboBox()
+        self.period_selector.addItems(["Select Period", "Daily", "Weekly", "Monthly"])
+        self.period_selector.hide()
+        layout.addWidget(self.period_selector)
 
-        layout.addWidget(self.strategy_name_input)
-        layout.addWidget(self.strategy_params_input)
-        layout.addWidget(add_strategy_button)
-        layout.addWidget(self.strategy_table)
+        self.param_form_layout = QFormLayout()
+        layout.addLayout(self.param_form_layout)
 
-        remove_strategy_button = QPushButton("Remove Selected Strategy")
-        remove_strategy_button.clicked.connect(self.remove_selected_strategy)
-        layout.addWidget(remove_strategy_button)
+        self.strategy_info = QLabel("Strategy info will be displayed here.")
+        layout.addWidget(self.strategy_info)
+
+        apply_strategy_button = QPushButton("Apply Strategy")
+        apply_strategy_button.clicked.connect(self.apply_strategy)
+        layout.addWidget(apply_strategy_button)
 
         tab.setLayout(layout)
         return tab
+
+    def update_strategy_params(self):
+        for i in reversed(range(self.param_form_layout.count())):
+            self.param_form_layout.itemAt(i).widget().deleteLater()
+
+        selected_strategy = self.strategy_selector.currentText()
+        if selected_strategy == "Moving Average":
+            self.period_selector.show()
+            self.add_parameter_field("Moving Average Period:", QLineEdit())
+            sma_type = QComboBox()
+            sma_type.addItems(["SMA", "EMA"])
+            self.add_parameter_field("Moving Average Type:", sma_type)
+        elif selected_strategy == "Breakout Strategy":
+            self.period_selector.hide()
+            self.add_parameter_field("Breakout Level:", QLineEdit())
+            breakout_direction = QComboBox()
+            breakout_direction.addItems(["buy", "sell"])
+            self.add_parameter_field("Direction (buy/sell):", breakout_direction)
+        elif selected_strategy == "Mean Reversion Strategy":
+            self.period_selector.show()
+            self.add_parameter_field("Calculation Period:", QLineEdit())
+            self.add_parameter_field("Allowable Deviation:", QLineEdit())
+        else:
+            self.period_selector.hide()
+
+        self.update_strategy_info(selected_strategy)
+
+    def update_strategy_info(self, strategy_name):
+        info_text = {
+            "Moving Average": "Moving Average strategy uses SMA or EMA for trend analysis.",
+            "Breakout Strategy": "Breakout Strategy aims to capitalize on strong price movements.",
+            "Mean Reversion Strategy": "Mean Reversion Strategy trades on the price's tendency to return to mean.",
+        }
+        self.strategy_info.setText(info_text.get(strategy_name, "Select a strategy to see details."))
+
+    def add_parameter_field(self, label_text, widget):
+        """Helper method to add a labeled input field to the form layout."""
+        self.param_form_layout.addRow(label_text, widget)
+
+    def apply_strategy(self):
+        selected_asset = self.asset_selector.currentText()
+        selected_strategy = self.strategy_selector.currentText()
+
+        if selected_strategy == "Select a Strategy" or selected_asset == "":
+            QtWidgets.QMessageBox.warning(self, "Error", "Please select both an asset and a strategy.")
+            return
+
+        parameters = {}
+        for i in range(self.param_form_layout.count()):
+            label_item = self.param_form_layout.itemAt(i, QFormLayout.LabelRole)
+            field_item = self.param_form_layout.itemAt(i, QFormLayout.FieldRole)
+
+            if label_item and field_item:
+                label = label_item.widget().text() if label_item.widget() else None
+                input_widget = field_item.widget()
+                if isinstance(input_widget, QLineEdit):
+                    parameters[label] = input_widget.text() if label else ""
+                elif isinstance(input_widget, QComboBox):
+                    parameters[label] = input_widget.currentText() if label else ""
+
+        if self.period_selector.isVisible() and self.period_selector.currentText() != "Select Period":
+            parameters["Period"] = self.period_selector.currentText()
+
+        QtWidgets.QMessageBox.information(
+            self, "Strategy Applied",
+            f"Strategy '{selected_strategy}' applied to {selected_asset} with parameters: {parameters}"
+        )
 
     def create_notifications_tab(self):
         tab = QWidget()
