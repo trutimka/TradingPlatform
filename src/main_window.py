@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
         self.data_fetcher = DataFetcher(api_key)
         self.portfolio_manager = PortfolioManager()
         self.strategy_manager = StrategyManager()
-        self.notifications = {}
+        Database.connect()
 
         self.setWindowTitle("Trading Platform")
         self.setGeometry(200, 200, 1000, 700)
@@ -38,6 +38,7 @@ class MainWindow(QMainWindow):
 
         self.update_prices()
         self.update_asset_table()
+        self.update_notification_table()
 
     def closeEvent(self, event):
         reply = QMessageBox.question(
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
         try:
             threshold = float(self.price_threshold_input.text().strip())
             if asset and threshold > 0:
-                self.notifications[asset] = threshold
+                Database.add_notification(asset, threshold)
                 self.update_notification_table()
                 self.notification_asset_input.clear()
                 self.price_threshold_input.clear()
@@ -207,18 +208,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid Input", "Please enter a valid price threshold.")
 
     def update_notification_table(self):
-        self.notification_table.setRowCount(len(self.notifications))
-        for row, (asset, threshold) in enumerate(self.notifications.items()):
+        notifications = {row[0]: [row[1], row[2]] for row in Database.get_notifications()}
+
+        self.notification_table.setRowCount(len(notifications))
+        for row, (notification_id, notification_data) in enumerate(notifications.items()):
+            threshold = notification_data[1]
+            asset = notification_data[0]
             self.notification_table.setItem(row, 0, QTableWidgetItem(asset))
             self.notification_table.setItem(row, 1, QTableWidgetItem(str(threshold)))
             remove_button = QPushButton("Remove")
-            remove_button.clicked.connect(lambda checked, asset=asset: self.remove_notification(asset))
+            remove_button.clicked.connect(lambda checked, notif_id=notification_id: self.remove_notification(notif_id))
             self.notification_table.setCellWidget(row, 2, remove_button)
 
-    def remove_notification(self, asset):
-        if asset in self.notifications:
-            del self.notifications[asset]
-            self.update_notification_table()
+    def remove_notification(self, not_id):
+        Database.remove_notification(not_id)
+        self.update_notification_table()
 
     def fetch_realtime_data(self, asset):
         price = self.data_fetcher.fetch_realtime_data(asset)["Global Quote"]["05. price"]
@@ -232,8 +236,9 @@ class MainWindow(QMainWindow):
     def update_prices(self):
         for asset in self.portfolio_manager.assets.keys():
             price = self.fetch_realtime_data(asset)
-            if asset in self.notifications:
-                threshold = self.notifications[asset]
+            notifications = {row[0]: [row[1], row[2]] for row in Database.get_notifications_for_asset(asset)}
+            for row, (notification_id, notification_data) in enumerate(notifications.items()):
+                threshold = notification_data[1]
                 if float(price) >= threshold:
                     self.show_notification(asset, price)
 

@@ -33,18 +33,24 @@ class Database:
             FOREIGN KEY (asset_id) REFERENCES assets(id)
         )
         ''')
+
+        Database.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_name TEXT NOT NULL,
+            activation_price REAL NOT NULL
+        )
+        ''')
         Database.connection.commit()
 
     @staticmethod
     def close():
-        print('here2', Database.cursor)
         if Database.cursor is None:
             raise Exception("Database not connected.")
         Database.cursor.close()
         Database.connection.close()
         Database.connection = None
         Database.cursor = None
-        print('here4')
 
     @staticmethod
     def get_assets():
@@ -81,6 +87,45 @@ class Database:
         if Database.cursor is None:
             raise Exception("Database not connected.")
         Database.cursor.execute("DELETE FROM assets")
+        Database.connection.commit()
+
+    @staticmethod
+    def get_notifications():
+        if Database.cursor is None:
+            raise Exception("Database not connected.")
+        Database.cursor.execute("SELECT * FROM notifications")
+        return Database.cursor.fetchall()
+
+    @staticmethod
+    def get_notifications_for_asset(asset):
+        if Database.cursor is None:
+            raise Exception("Database not connected.")
+        Database.cursor.execute("SELECT * FROM notifications WHERE asset_name = ?", (asset,))
+        return Database.cursor.fetchall()
+
+    @staticmethod
+    def add_notification(asset_name, activation_price):
+        if Database.cursor is None:
+            raise Exception("Database not connected.")
+        Database.cursor.execute(
+            "INSERT INTO notifications (asset_name, activation_price) VALUES (?, ?)",
+            (asset_name, activation_price)
+        )
+        Database.connection.commit()
+        return Database.cursor.lastrowid
+
+    @staticmethod
+    def remove_notification(notification_id):
+        if Database.cursor is None:
+            raise Exception("Database not connected.")
+        Database.cursor.execute("DELETE FROM notifications WHERE id = ?", (notification_id,))
+        Database.connection.commit()
+
+    @staticmethod
+    def clear_notifications():
+        if Database.cursor is None:
+            raise Exception("Database not connected.")
+        Database.cursor.execute("DELETE FROM notifications")
         Database.connection.commit()
 
     # @staticmethod
