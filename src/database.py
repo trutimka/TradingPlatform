@@ -1,4 +1,5 @@
 import sqlite3
+import os
 
 
 class Database:
@@ -8,6 +9,7 @@ class Database:
 
     @staticmethod
     def connect():
+        os.makedirs(os.path.dirname(Database.db_name), exist_ok=True)
         Database.connection = sqlite3.connect(Database.db_name)
         Database.connection.row_factory = sqlite3.Row
         Database.cursor = Database.connection.cursor()

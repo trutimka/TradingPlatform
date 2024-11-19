@@ -360,7 +360,7 @@ class MainWindow(QMainWindow):
 
     def update_asset_selector(self):
         self.asset_selector.clear()
-        self.asset_selector.addItems("")
+        self.asset_selector.addItem("")
         self.asset_selector.addItems(self.portfolio_manager.assets.keys())
         self.chart_combo.setCurrentIndex(0)
 
