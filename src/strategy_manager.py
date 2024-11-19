@@ -1,4 +1,4 @@
-from src.strategy import Strategy
+from strategy import Strategy
 
 
 class StrategyManager:
