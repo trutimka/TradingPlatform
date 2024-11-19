@@ -24,17 +24,6 @@ class Database:
         ''')
 
         Database.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS strategies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            asset_id INTEGER,
-            indicator TEXT,
-            condition TEXT,
-            FOREIGN KEY (asset_id) REFERENCES assets(id)
-        )
-        ''')
-
-        Database.cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             asset_name TEXT NOT NULL,
@@ -127,23 +116,3 @@ class Database:
             raise Exception("Database not connected.")
         Database.cursor.execute("DELETE FROM notifications")
         Database.connection.commit()
-
-    # @staticmethod
-    # def add_strategy(name, asset_id, indicator, condition):
-    #     Database.cursor.execute(
-    #         "INSERT INTO strategies (name, asset_id, indicator, condition) VALUES (?, ?, ?, ?)",
-    #         (name, asset_id, indicator, condition)
-    #     )
-    #     Database.connection.commit()
-    #     return Database.cursor.lastrowid
-    #
-    # @staticmethod
-    # def get_strategies():
-    #     Database.cursor.execute("SELECT * FROM strategies")
-    #     return Database.cursor.fetchall()
-    #
-    # @staticmethod
-    # def delete_strategy(strategy_id):
-    #     Database.cursor.execute("DELETE FROM strategies WHERE id = ?", (strategy_id,))
-    #     Database.connection.commit()
-

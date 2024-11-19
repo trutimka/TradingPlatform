@@ -1,10 +1,8 @@
-import sys
 import pandas as pd
-from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets
+from PyQt5 import QtWebEngineWidgets
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
-    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox, QComboBox, QFormLayout,
-    QPlainTextEdit
+    QMainWindow, QTabWidget, QWidget, QVBoxLayout,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QHBoxLayout, QMessageBox, QComboBox, QFormLayout
 )
 from PyQt5.QtCore import QTimer
 from data_fetcher import DataFetcher
@@ -16,10 +14,11 @@ import plotly.graph_objs as go
 
 class MainWindow(QMainWindow):
     def __init__(self, api_key):
+        """Creating Window and timer"""
         super().__init__()
         self.data_fetcher = DataFetcher(api_key)
         self.portfolio_manager = PortfolioManager()
-        self.strategy_manager = StrategyManager()
+        self.strategy_manager = StrategyManager(self.data_fetcher)
         Database.connect()
 
         self.setWindowTitle("Trading Platform")
@@ -35,6 +34,7 @@ class MainWindow(QMainWindow):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_prices)
+        self.timer.timeout.connect(self.run_strategies)
         self.timer.start(60000)
 
         self.update_prices()
@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
         else:
             event.ignore()
 
+    '''Part with creating all tabs'''
     def create_portfolio_tab(self):
         tab = QWidget()
         layout = QVBoxLayout()
@@ -88,105 +89,39 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("Select an Asset"))
         self.asset_selector = QComboBox()
-        print(self.portfolio_manager.get_assets())
         self.asset_selector.addItems([assets[0] for assets in self.portfolio_manager.get_assets()])
         layout.addWidget(self.asset_selector)
 
         layout.addWidget(QLabel("Select a Strategy"))
         self.strategy_selector = QComboBox()
         self.strategy_selector.addItems([
-            "Select a Strategy",
-            "Moving Average",
-            "Breakout Strategy",
-            "Mean Reversion Strategy"
+            "Select a Strategy", "SMA", "RSI", "BBands"
         ])
         self.strategy_selector.currentIndexChanged.connect(self.update_strategy_params)
         layout.addWidget(self.strategy_selector)
 
-        self.period_selector = QComboBox()
-        self.period_selector.addItems(["Select Period", "Daily", "Weekly", "Monthly"])
-        self.period_selector.hide()
-        layout.addWidget(self.period_selector)
+        self.interval_selector = QComboBox()
+        self.interval_selector.addItems(["Select Period", "1 Min", "5 Min", "15 Min", "30 Min", "60 Min", "Daily",
+                                       "Weekly", "Monthly"])
+        self.interval_selector.hide()
+        layout.addWidget(self.interval_selector)
 
         self.param_form_layout = QFormLayout()
         layout.addLayout(self.param_form_layout)
-
-        self.strategy_info = QLabel("Strategy info will be displayed here.")
-        layout.addWidget(self.strategy_info)
 
         apply_strategy_button = QPushButton("Apply Strategy")
         apply_strategy_button.clicked.connect(self.apply_strategy)
         layout.addWidget(apply_strategy_button)
 
+        layout.addWidget(QLabel("Current Strategies"))
+        self.strategy_table = QTableWidget()
+        self.strategy_table.setColumnCount(4)
+        self.strategy_table.setHorizontalHeaderLabels(["Asset", "Strategy", "Parameters", "Remove"])
+        layout.addWidget(self.strategy_table)
+
         tab.setLayout(layout)
+        self.update_strategy_table()
         return tab
-
-    def update_strategy_params(self):
-        for i in reversed(range(self.param_form_layout.count())):
-            self.param_form_layout.itemAt(i).widget().deleteLater()
-
-        selected_strategy = self.strategy_selector.currentText()
-        if selected_strategy == "Moving Average":
-            self.period_selector.show()
-            self.add_parameter_field("Moving Average Period:", QLineEdit())
-            sma_type = QComboBox()
-            sma_type.addItems(["SMA", "EMA"])
-            self.add_parameter_field("Moving Average Type:", sma_type)
-        elif selected_strategy == "Breakout Strategy":
-            self.period_selector.hide()
-            self.add_parameter_field("Breakout Level:", QLineEdit())
-            breakout_direction = QComboBox()
-            breakout_direction.addItems(["buy", "sell"])
-            self.add_parameter_field("Direction (buy/sell):", breakout_direction)
-        elif selected_strategy == "Mean Reversion Strategy":
-            self.period_selector.show()
-            self.add_parameter_field("Calculation Period:", QLineEdit())
-            self.add_parameter_field("Allowable Deviation:", QLineEdit())
-        else:
-            self.period_selector.hide()
-
-        self.update_strategy_info(selected_strategy)
-
-    def update_strategy_info(self, strategy_name):
-        info_text = {
-            "Moving Average": "Moving Average strategy uses SMA or EMA for trend analysis.",
-            "Breakout Strategy": "Breakout Strategy aims to capitalize on strong price movements.",
-            "Mean Reversion Strategy": "Mean Reversion Strategy trades on the price's tendency to return to mean.",
-        }
-        self.strategy_info.setText(info_text.get(strategy_name, "Select a strategy to see details."))
-
-    def add_parameter_field(self, label_text, widget):
-        """Helper method to add a labeled input field to the form layout."""
-        self.param_form_layout.addRow(label_text, widget)
-
-    def apply_strategy(self):
-        selected_asset = self.asset_selector.currentText()
-        selected_strategy = self.strategy_selector.currentText()
-
-        if selected_strategy == "Select a Strategy" or selected_asset == "":
-            QtWidgets.QMessageBox.warning(self, "Error", "Please select both an asset and a strategy.")
-            return
-
-        parameters = {}
-        for i in range(self.param_form_layout.count()):
-            label_item = self.param_form_layout.itemAt(i, QFormLayout.LabelRole)
-            field_item = self.param_form_layout.itemAt(i, QFormLayout.FieldRole)
-
-            if label_item and field_item:
-                label = label_item.widget().text() if label_item.widget() else None
-                input_widget = field_item.widget()
-                if isinstance(input_widget, QLineEdit):
-                    parameters[label] = input_widget.text() if label else ""
-                elif isinstance(input_widget, QComboBox):
-                    parameters[label] = input_widget.currentText() if label else ""
-
-        if self.period_selector.isVisible() and self.period_selector.currentText() != "Select Period":
-            parameters["Period"] = self.period_selector.currentText()
-
-        QtWidgets.QMessageBox.information(
-            self, "Strategy Applied",
-            f"Strategy '{selected_strategy}' applied to {selected_asset} with parameters: {parameters}"
-        )
 
     def create_notifications_tab(self):
         tab = QWidget()
@@ -237,6 +172,21 @@ class MainWindow(QMainWindow):
         tab.setLayout(layout)
         return tab
 
+    '''Part with update functions and main logic for Portfolio tab'''
+    def update_asset_table(self):
+        self.portfolio_manager.load_assets_from_db()
+        self.asset_table.setRowCount(len(self.portfolio_manager.assets))
+        for row, (asset, price) in enumerate(self.portfolio_manager.get_assets()):
+            self.asset_table.setItem(row, 0, QTableWidgetItem(asset))
+            self.asset_table.setItem(row, 1, QTableWidgetItem(str(price) if price is not None else "Fetching..."))
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(lambda checked, asset=asset: self.remove_asset(asset))
+            self.asset_table.setCellWidget(row, 2, remove_button)
+
+    def remove_asset(self, asset):
+        self.portfolio_manager.remove_asset(asset)
+        self.update_asset_table()
+
     def add_asset(self):
         asset_symbol = self.asset_input.text().strip().upper()
         if asset_symbol:
@@ -253,25 +203,90 @@ class MainWindow(QMainWindow):
             self.portfolio_manager.remove_asset(asset_symbol)
             self.update_asset_table()
 
-    def add_strategy(self):
-        strategy_name = self.strategy_name_input.text().strip()
-        strategy_params = self.strategy_params_input.text().strip()
+    '''Part with update functions and main logic for Strategy tab'''
+    def update_strategy_params(self):
+        for i in reversed(range(self.param_form_layout.count())):
+            self.param_form_layout.itemAt(i).widget().deleteLater()
 
-        if strategy_name and strategy_params:
-            self.strategy_manager.add_strategy(strategy_name, strategy_params)
-            self.update_strategy_table()
-            self.strategy_name_input.clear()
-            self.strategy_params_input.clear()
+        selected_strategy = self.strategy_selector.currentText()
+        if selected_strategy == "SMA":
+            self.interval_selector.show()
+            self.add_parameter_field("Fast Period:", QLineEdit())
+            self.add_parameter_field("Slow Period:", QLineEdit())
+        elif selected_strategy == "RSI":
+            self.interval_selector.show()
+            self.add_parameter_field("Time Period:", QLineEdit())
+            self.add_parameter_field("Threshold:", QLineEdit())
+        elif selected_strategy == "BBands":
+            self.interval_selector.show()
+            self.add_parameter_field("Time Period:", QLineEdit())
+            self.add_parameter_field("Multiplier:", QLineEdit())
         else:
-            QMessageBox.warning(self, "Input Error", "Please provide both strategy name and parameters.")
+            self.interval_selector.hide()
 
-    def remove_selected_strategy(self):
-        selected_row = self.strategy_table.currentRow()
-        if selected_row >= 0:
-            strategy_name = self.strategy_table.item(selected_row, 0).text()
-            self.strategy_manager.remove_strategy(strategy_name)
+    def add_parameter_field(self, label_text, widget):
+        if isinstance(widget, QLineEdit) or isinstance(widget, QComboBox):
+            self.param_form_layout.addRow(label_text, widget)
+
+    def apply_strategy(self):
+        selected_asset = self.asset_selector.currentText()
+        selected_strategy = self.strategy_selector.currentText()
+
+        if selected_strategy == "Select a Strategy" or not selected_asset:
+            QMessageBox.warning(self, "Error", "Please select both an asset and a strategy.")
+            return
+
+        if self.interval_selector.isVisible() and self.interval_selector.currentText() == "Select Period":
+            QMessageBox.warning(self, "Error", "Please select period.")
+            return
+
+        parameters = {}
+
+        for i in range(self.param_form_layout.count()):
+            label_item = self.param_form_layout.itemAt(i, QFormLayout.LabelRole)
+            field_item = self.param_form_layout.itemAt(i, QFormLayout.FieldRole)
+
+            if label_item and field_item:
+                label = label_item.widget().text() if label_item.widget() else None
+                input_widget = field_item.widget()
+                if isinstance(input_widget, QLineEdit):
+                    parameters[label] = input_widget.text()
+                elif isinstance(input_widget, QComboBox):
+                    parameters[label] = input_widget.currentText()
+
+        if self.interval_selector.isVisible() and self.interval_selector.currentText() != "Select Period":
+            parameters["Interval"] = self.interval_selector.currentText()
+
+        result = self.strategy_manager.add_strategy(selected_asset, selected_strategy, parameters)
+
+        self.update_strategy_table()
+
+        QMessageBox.information(self, "Strategy Applied",
+                                f"Strategy '{selected_strategy}' applied to {selected_asset}. "
+                                f"Now, recommendation is to {result}.")
+
+    def remove_strategy(self, row):
+        try:
+            self.strategy_manager.remove_strategy(row)
             self.update_strategy_table()
+        except IndexError as e:
+            QMessageBox.warning(self, "Error", f"Failed to remove strategy: {str(e)}")
 
+    def update_strategy_table(self):
+        self.strategy_table.setRowCount(0)
+        strategies = self.strategy_manager.get_strategies()
+
+        for row, strategy in enumerate(strategies):
+            self.strategy_table.insertRow(row)
+            self.strategy_table.setItem(row, 0, QTableWidgetItem(strategy.asset))
+            self.strategy_table.setItem(row, 1, QTableWidgetItem(strategy.strategy_name))
+            self.strategy_table.setItem(row, 2, QTableWidgetItem(str(strategy.parameters)))
+
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(lambda r=row: self.remove_strategy(r))
+            self.strategy_table.setCellWidget(row, 3, remove_button)
+
+    '''Part with update functions and main logic for Notification tab'''
     def add_notification(self):
         asset = self.notification_asset_input.text().strip().upper()
         try:
@@ -303,50 +318,13 @@ class MainWindow(QMainWindow):
         Database.remove_notification(not_id)
         self.update_notification_table()
 
-    def fetch_realtime_data(self, asset):
-        price = self.data_fetcher.fetch_realtime_data(asset)["Global Quote"]["05. price"]
-        # Вот здесь все еще костыль
-        if price is not None:
-            self.portfolio_manager.add_asset(asset, price)
-            return price
-        else:
-            print(f"Could not fetch price for {asset}")
-
-    def update_prices(self):
-        for asset in self.portfolio_manager.assets.keys():
-            price = self.fetch_realtime_data(asset)
-            notifications = {row[0]: [row[1], row[2]] for row in Database.get_notifications_for_asset(asset)}
-            for row, (notification_id, notification_data) in enumerate(notifications.items()):
-                threshold = notification_data[1]
-                if float(price) >= threshold:
-                    self.show_notification(asset, price)
-
     def show_notification(self, asset, price):
         try:
             QMessageBox.information(self, "Price Alert", f"{asset} has reached the price of {price}!")
         except WindowsError:
             QMessageBox.warning(self, "Invalid Notification", "Something wrong with notifications.")
 
-    def update_asset_table(self):
-        self.portfolio_manager.load_assets_from_db()
-        self.asset_table.setRowCount(len(self.portfolio_manager.assets))
-        for row, (asset, price) in enumerate(self.portfolio_manager.get_assets()):
-            self.asset_table.setItem(row, 0, QTableWidgetItem(asset))
-            self.asset_table.setItem(row, 1, QTableWidgetItem(str(price) if price is not None else "Fetching..."))
-            remove_button = QPushButton("Remove")
-            remove_button.clicked.connect(lambda checked, asset=asset: self.remove_asset(asset))
-            self.asset_table.setCellWidget(row, 2, remove_button)
-
-    def remove_asset(self, asset):
-        self.portfolio_manager.remove_asset(asset)
-        self.update_asset_table()
-
-    def update_strategy_table(self):
-        self.strategy_table.setRowCount(len(self.strategy_manager.strategies))
-        for row, strategy in enumerate(self.strategy_manager.get_strategies()):
-            self.strategy_table.setItem(row, 0, QTableWidgetItem(strategy.name))
-            self.strategy_table.setItem(row, 1, QTableWidgetItem(strategy.parameters))
-
+    '''Part with update functions and main logic for Notification tab'''
     def update_chart(self):
         asset_symbol = self.chart_combo.currentText()
         if asset_symbol == "":
@@ -386,3 +364,29 @@ class MainWindow(QMainWindow):
         self.asset_selector.addItems(self.portfolio_manager.assets.keys())
         self.chart_combo.setCurrentIndex(0)
 
+    '''Updating data in real time'''
+    def fetch_realtime_data(self, asset):
+        price = self.data_fetcher.fetch_realtime_data(asset)["Global Quote"]["05. price"]
+        if price is not None:
+            self.portfolio_manager.add_asset(asset, price)
+            return price
+        else:
+            print(f"Could not fetch price for {asset}")
+
+    def update_prices(self):
+        for asset in self.portfolio_manager.assets.keys():
+            price = self.fetch_realtime_data(asset)
+            notifications = {row[0]: [row[1], row[2]] for row in Database.get_notifications_for_asset(asset)}
+            for row, (notification_id, notification_data) in enumerate(notifications.items()):
+                threshold = notification_data[1]
+                if float(price) >= threshold:
+                    self.show_notification(asset, price)
+
+    def run_strategies(self):
+        for strategy in self.strategy_manager.get_strategies():
+            result = self.strategy_manager.execute_strategy(strategy)
+            if result != "HOLD":
+                QMessageBox.information(self, "Strategy Update",
+                                        f"Strategy '{strategy.strategy_name}' updates for {strategy.asset}"
+                                        f" with parameters: {strategy.parameters}"
+                                        f"Now, recommendation is to {result}.")
